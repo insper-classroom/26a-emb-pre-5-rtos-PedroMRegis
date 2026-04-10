@@ -22,13 +22,13 @@ const int BTN_PIN_Y = 21;
 const int LED_PIN_R = 5;
 const int LED_PIN_Y = 10;
 
-QueueHandle_t xQueueBotao;
-QueueHandle_t xQueueLedVermelho;
-QueueHandle_t xQueueLedAmarelo;
+QueueHandle_t xQueueBtn;
+SemaphoreHandle_t xSemaphoreLedR;
+SemaphoreHandle_t xSemaphoreLedY;
 
 void callback_botao(uint gpio, uint32_t eventos) {
     if (eventos == 0x4) {
-        xQueueSendFromISR(xQueueBotao, &gpio, 0);
+        xQueueSendFromISR(xQueueBtn, &gpio, 0);
     }
 }
 
@@ -44,16 +44,15 @@ void task_botao(void *p) {
     gpio_set_irq_enabled(BTN_PIN_Y, GPIO_IRQ_EDGE_FALL, true);
 
     uint gpio;
-    int sinal = 1;
 
     while (true) {
-        if (xQueueReceive(xQueueBotao, &gpio, pdMS_TO_TICKS(5000))) {
+        if (xQueueReceive(xQueueBtn, &gpio, pdMS_TO_TICKS(5000))) {
             vTaskDelay(pdMS_TO_TICKS(200));
 
             if (gpio == BTN_PIN_R) {
-                xQueueSend(xQueueLedVermelho, &sinal, 0);
+                xSemaphoreGive(xSemaphoreLedR);
             } else if (gpio == BTN_PIN_Y) {
-                xQueueSend(xQueueLedAmarelo, &sinal, 0);
+                xSemaphoreGive(xSemaphoreLedY);
             }
         }
     }
@@ -65,11 +64,10 @@ void task_led_vermelho(void *p) {
 
     bool piscando = false;
     bool led_state = false;
-    int dado;
 
     while (true) {
         if (piscando) {
-            if (xQueueReceive(xQueueLedVermelho, &dado, pdMS_TO_TICKS(100))) {
+            if (xSemaphoreTake(xSemaphoreLedR, pdMS_TO_TICKS(100))) {
                 piscando = false;
                 led_state = false;
                 gpio_put(LED_PIN_R, 0);
@@ -78,7 +76,7 @@ void task_led_vermelho(void *p) {
                 gpio_put(LED_PIN_R, led_state);
             }
         } else {
-            if (xQueueReceive(xQueueLedVermelho, &dado, pdMS_TO_TICKS(5000))) {
+            if (xSemaphoreTake(xSemaphoreLedR, pdMS_TO_TICKS(5000))) {
                 piscando = true;
             }
         }
@@ -91,11 +89,10 @@ void task_led_amarelo(void *p) {
 
     bool piscando = false;
     bool led_state = false;
-    int dado;
 
     while (true) {
         if (piscando) {
-            if (xQueueReceive(xQueueLedAmarelo, &dado, pdMS_TO_TICKS(100))) {
+            if (xSemaphoreTake(xSemaphoreLedY, pdMS_TO_TICKS(100))) {
                 piscando = false;
                 led_state = false;
                 gpio_put(LED_PIN_Y, 0);
@@ -104,7 +101,7 @@ void task_led_amarelo(void *p) {
                 gpio_put(LED_PIN_Y, led_state);
             }
         } else {
-            if (xQueueReceive(xQueueLedAmarelo, &dado, pdMS_TO_TICKS(5000))) {
+            if (xSemaphoreTake(xSemaphoreLedY, pdMS_TO_TICKS(5000))) {
                 piscando = true;
             }
         }
@@ -114,13 +111,13 @@ void task_led_amarelo(void *p) {
 int main() {
     stdio_init_all();
 
-    xQueueBotao       = xQueueCreate(32, sizeof(uint));
-    xQueueLedVermelho = xQueueCreate(1, sizeof(int));
-    xQueueLedAmarelo  = xQueueCreate(1, sizeof(int));
+    xQueueBtn = xQueueCreate(32, sizeof(uint));
+    xSemaphoreLedR = xSemaphoreCreateBinary();
+    xSemaphoreLedY = xSemaphoreCreateBinary();
 
-    xTaskCreate(task_botao,        "Tarefa Botao",        256, NULL, 1, NULL);
-    xTaskCreate(task_led_vermelho, "Tarefa LED Vermelho", 256, NULL, 1, NULL);
-    xTaskCreate(task_led_amarelo,  "Tarefa LED Amarelo",  256, NULL, 1, NULL);
+    xTaskCreate(task_botao, "Task Botao", 256, NULL, 1, NULL);
+    xTaskCreate(task_led_vermelho, "Task LED Vermelho", 256, NULL, 1, NULL);
+    xTaskCreate(task_led_amarelo, "Task LED Amarelo", 256, NULL, 1, NULL);
 
     vTaskStartScheduler();
 
